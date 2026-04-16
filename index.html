@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>亚马逊周报分析看板</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f7fa; color: #333; }
+        
+        .header { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 20px 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .header h1 { font-size: 1.5rem; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        
+        .upload-section { background: white; padding: 20px; border-radius: 12px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+        .file-input-wrapper { display: flex; flex-direction: column; gap: 5px; }
+        .file-input-wrapper label { font-size: 0.85rem; color: #64748b; font-weight: 500; }
+        .file-input-wrapper input[type="file"] { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+        .file-input-wrapper input[type="file"]:hover { border-color: #3b82f6; }
+        
+        .tabs { display: flex; gap: 5px; background: white; padding: 5px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); overflow-x: auto; }
+        .tab { padding: 12px 20px; border: none; background: transparent; cursor: pointer; font-size: 0.9rem; font-weight: 500; color: #64748b; border-radius: 8px; transition: all 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+        .tab:hover { background: #f1f5f9; color: #334155; }
+        .tab.active { background: #3b82f6; color: white; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .section-title { font-size: 1.1rem; font-weight: 600; color: #1e3a5f; margin: 20px 0 15px 0; border-left: 3px solid #3b82f6; padding-left: 12px; display: flex; align-items: center; gap: 8px; }
+        
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .kpi-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); text-align: center; transition: transform 0.2s; }
+        .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .kpi-icon { font-size: 1.5rem; margin-bottom: 8px; }
+        .kpi-value { font-size: 1.6rem; font-weight: 700; color: #1e3a5f; margin-bottom: 5px; }
+        .kpi-label { font-size: 0.8rem; color: #64748b; margin-bottom: 8px; }
+        .kpi-change { font-size: 0.85rem; font-weight: 600; }
+        .kpi-change.up { color: #16a34a; }
+        .kpi-change.down { color: #dc2626; }
+        
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        
+        .chart-container { width: 100%; height: 400px; }
+        .chart-container.large { height: 500px; }
+        
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; }
+        
+        .filters { display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px; align-items: center; }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        .filter-group label { font-size: 0.8rem; color: #64748b; font-weight: 500; }
+        .filter-group input, .filter-group select { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; }
+        
+        table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; font-weight: 600; color: #1e3a5f; position: sticky; top: 0; }
+        tr:hover { background: #f8fafc; }
+        .table-container { max-height: 400px; overflow-y: auto; border-radius: 8px; border: 1px solid #e2e8f0; }
+        
+        .anomaly-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .anomaly-stat { background: white; padding: 15px; border-radius: 10px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+        .anomaly-stat-value { font-size: 1.8rem; font-weight: 700; color: #dc2626; }
+        .anomaly-stat-label { font-size: 0.8rem; color: #64748b; margin-top: 5px; }
+        
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+        .badge-red { background: #fef2f2; color: #dc2626; }
+        .badge-yellow { background: #fefce8; color: #ca8a04; }
+        .badge-green { background: #f0fdf4; color: #16a34a; }
+        
+        .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+        .empty-state-icon { font-size: 3rem; margin-bottom: 15px; }
+        
+        .footer { text-align: center; padding: 20px; color: #94a3b8; font-size: 0.85rem; margin-top: 30px; }
+        
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+            .tabs { flex-wrap: nowrap; overflow-x: scroll; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📈 亚马逊周报分析看板</h1>
+    </div>
+    
+    <div class="container">
+        <div class="upload-section">
+            <div class="file-input-wrapper">
+                <label>本周数据 (.xlsx)</label>
+                <input type="file" id="currentFile" accept=".xlsx" onchange="loadData('current')">
+            </div>
+            <div class="file-input-wrapper">
+                <label>上周数据 (环比对比)</label>
+                <input type="file" id="prevFile" accept=".xlsx" onchange="loadData('prev')">
+            </div>
+            <div style="margin-left: auto; color: #64748b; font-size: 0.85rem;">
+                <span id="dataStatus">📂 请上传数据文件</span>
+            </div>
+        </div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab(0)">📊 总览KPI</button>
+            <button class="tab" onclick="switchTab(1)">📈 销售趋势</button>
+            <button class="tab" onclick="switchTab(2)">📦 产品表现</button>
+            <button class="tab" onclick="switchTab(3)">📢 广告效果</button>
+            <button class="tab" onclick="switchTab(4)">📊 流量趋势</button>
+            <button class="tab" onclick="switchTab(5)">⚠️ 异常监控</button>
+            <button class="tab" onclick="switchTab(6)">📦 库存监控</button>
+        </div>
+        
+        <!-- Tab 1: 总览KPI -->
+        <div class="tab-content active" id="tab-0">
+            <div class="section-title">📊 核心指标总览</div>
+            <div class="kpi-grid" id="kpiGrid">
+                <div class="kpi-card">
+                    <div class="kpi-icon">🛒</div>
+                    <div class="kpi-value" id="kpi-orders">-</div>
+                    <div class="kpi-label">总订单量</div>
+                    <div class="kpi-change" id="kpi-orders-change"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">💰</div>
+                    <div class="kpi-value" id="kpi-sales">-</div>
+                    <div class="kpi-label">总销售额</div>
+                    <div class="kpi-change" id="kpi-sales-change"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">💵</div>
+                    <div class="kpi-value" id="kpi-profit">-</div>
+                    <div class="kpi-label">总毛利润</div>
+                    <div class="kpi-change" id="kpi-profit-change"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">📊</div>
+                    <div class="kpi-value" id="kpi-margin">-</div>
+                    <div class="kpi-label">毛利率</div>
+                    <div class="kpi-change" id="kpi-margin-change"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">📢</div>
+                    <div class="kpi-value" id="kpi-adcost">-</div>
+                    <div class="kpi-label">广告花费</div>
+                    <div class="kpi-change" id="kpi-adcost-change"></div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-icon">📣</div>
+                    <div class="kpi-value" id="kpi-adsales">-</div>
+                    <div class="kpi-label">广告销售额</div>
+                    <div class="kpi-change" id="kpi-adsales-change"></div>
+                </div>
+            </div>
+            
+            <div class="section-title">📊 订单/销售额构成</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div id="chart-order-composition" class="chart-container"></div>
+                </div>
+                <div class="card">
+                    <div id="chart-sales-composition" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 2: 销售趋势 -->
+        <div class="tab-content" id="tab-1">
+            <div class="section-title">📈 店铺销售趋势</div>
+            <div class="card">
+                <div id="chart-sales-trend" class="chart-container large"></div>
+            </div>
+        </div>
+        
+        <!-- Tab 3: 产品表现 -->
+        <div class="tab-content" id="tab-2">
+            <div class="section-title">📦 产品表现</div>
+            <div class="card">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>排除0销量</label>
+                        <input type="checkbox" id="excludeZeroSales" onchange="updateProductChart()">
+                    </div>
+                    <div class="filter-group">
+                        <label>显示TOP</label>
+                        <input type="number" id="topN" value="15" min="5" max="50" onchange="updateProductChart()">
+                    </div>
+                </div>
+                <div id="chart-product-sales" class="chart-container"></div>
+            </div>
+            <div class="card">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>最低销量筛选</label>
+                        <input type="number" id="minSalesProduct" value="0" min="0" onchange="updateProductTable()">
+                    </div>
+                </div>
+                <div class="section-title">📋 产品详情</div>
+                <div class="table-container">
+                    <table id="productTable">
+                        <thead>
+                            <tr>
+                                <th>产品</th>
+                                <th>销量</th>
+                                <th>销售额</th>
+                                <th>毛利润</th>
+                                <th>评分</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 4: 广告效果 -->
+        <div class="tab-content" id="tab-3">
+            <div class="section-title">📢 广告效果分析</div>
+            <div class="grid-2">
+                <div class="card">
+                    <div id="chart-ad-performance" class="chart-container"></div>
+                </div>
+                <div class="card">
+                    <div id="chart-acos-dist" class="chart-container"></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="section-title">📋 广告关键指标</div>
+                <div id="adMetricsSummary"></div>
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>最低销量筛选</label>
+                        <input type="number" id="minSalesAd" value="0" min="0" onchange="updateAdTable()">
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table id="adTable">
+                        <thead>
+                            <tr>
+                                <th>产品</th>
+                                <th>销量</th>
+                                <th>销售额</th>
+                                <th>广告花费</th>
+                                <th>广告销售额</th>
+                                <th>ACOS</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab 5: 流量趋势 -->
+        <div class="tab-content" id="tab-4">
+            <div class="section-title">📊 流量趋势</div>
+            <div class="card">
+                <div id="chart-flow-trend" class="chart-container large"></div>
+            </div>
+        </div>
+        
+        <!-- Tab 6: 异常监控 -->
+        <div class="tab-content" id="tab-5">
+            <div class="section-title">⚠️ 异常监控</div>
+            <div class="filters">
+                <div class="filter-group">
+                    <label>最低销量筛选</label>
+                    <input type="number" id="minSalesAnomaly" value="0" min="0" onchange="updateAnomaly()">
+                </div>
+                <div class="filter-group">
+                    <label>高ACOS阈值(%)</label>
+                    <input type="number" id="acosThreshold" value="35" min="10" max="100" onchange="updateAnomaly()">
+                </div>
+                <div class="filter-group">
+                    <label>低利润率阈值(%)</label>
+                    <input type="number" id="marginThreshold" value="10" min="0" max="50" onchange="updateAnomaly()">
+                </div>
+                <div class="filter-group">
+                    <label>高退款率阈值(%)</label>
+                    <input type="number" id="refundThreshold" value="5" min="0" max="30" onchange="updateAnomaly()">
+                </div>
+                <div class="filter-group">
+                    <label>低评分阈值</label>
+                    <input type="number" id="ratingThreshold" value="4.0" min="1" max="5" step="0.1" onchange="updateAnomaly()">
+                </div>
+            </div>
+            <div class="anomaly-stats" id="anomalyStats"></div>
+            <div id="anomalyTables"></div>
+        </div>
+        
+        <!-- Tab 7: 库存监控 -->
+        <div class="tab-content" id="tab-6">
+            <div class="section-title">📦 库存监控</div>
+            <div class="card">
+                <div style="color: #64748b; font-size: 0.85rem; margin-bottom: 15px;">
+                    📌 取值说明：库存数值为本周最后一天的数值
+                </div>
+                <div class="kpi-grid" id="inventoryKpiGrid"></div>
+            </div>
+            <div class="card">
+                <div class="filters">
+                    <div class="filter-group">
+                        <label>最低销量筛选</label>
+                        <input type="number" id="minSalesInventory" value="0" min="0" onchange="updateInventoryTable()">
+                    </div>
+                </div>
+                <div class="section-title">📋 SKU库存明细</div>
+                <div class="table-container">
+                    <table id="inventoryTable">
+                        <thead>
+                            <tr>
+                                <th>产品</th>
+                                <th>FBA-可售</th>
+                                <th>FBA-入库中</th>
+                                <th>FBA-在途</th>
+                                <th>销量</th>
+                                <th>动销率</th>
+                                <th>库销比</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            📊 亚马逊周报分析看板 | 纯HTML版本 | 数据本地处理，不上传服务器
+        </div>
+    </div>
+
+    <script>
+        // 全局数据存储
+        let currentData = null;
+        let prevData = null;
+        let charts = {};
+        
+        // 初始化图表
+        function initCharts() {
+            charts.orderComposition = echarts.init(document.getElementById('chart-order-composition'));
+            charts.salesComposition = echarts.init(document.getElementById('chart-sales-composition'));
+            charts.salesTrend = echarts.init(document.getElementById('chart-sales-trend'));
+            charts.productSales = echarts.init(document.getElementById('chart-product-sales'));
+            charts.adPerformance = echarts.init(document.getElementById('chart-ad-performance'));
+            charts.acosDist = echarts.init(document.getElementById('chart-acos-dist'));
+            charts.flowTrend = echarts.init(document.getElementById('chart-flow-trend'));
+        }
+        
+        // 切换Tab
+        function switchTab(index) {
+            document.querySelectorAll('.tab').forEach((tab, i) => {
+                tab.classList.toggle('active', i === index);
+            });
+            document.querySelectorAll('.tab-content').forEach((content, i) => {
+                content.classList.toggle('active', i === index);
+            });
+            // 延迟resize以确保图表正确渲染
+            setTimeout(() => {
+                Object.values(charts).forEach(chart => chart && chart.resize());
+            }, 100);
+        }
+        
+        // 加载Excel数据
+        async function loadData(type) {
+            const input = document.getElementById(type === 'current' ? 'currentFile' : 'prevFile');
+            const file = input.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                
+                if (type === 'current') {
+                    currentData = processData(jsonData);
+                } else {
+                    prevData = processData(jsonData);
+                }
+                
+                updateDashboard();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // 数据处理
+        function processData(data) {
+            return data.map(row => {
+                const processed = {};
+                Object.keys(row).forEach(key => {
+                    const cleanKey = key.trim();
+                    let value = row[key];
+                    
+                    // 数值转换
+                    const numFields = ['销量', '销售额', '订单量', '广告花费', '广告销售额', '订单毛利润', 
+                                      '订单毛利率', 'ACOS', 'CTR', 'CVR', '退款率', 'FBA-可售', 'FBA-入库中', 'FBA-在途',
+                                      '销量环比', '销售额环比', '订单量环比', '广告订单占比', '评分', '自然订单量', '自然销售额',
+                                      'Sessions-Total', 'PV-Total', '自然点击量', '自然CVR'];
+                    
+                    if (numFields.includes(cleanKey)) {
+                        value = parseFloat(value) || 0;
+                        // 百分比字段转换
+                        const pctFields = ['销量环比', '销售额环比', '订单量环比', '订单毛利率', 'ACOS', 'CTR', 'CVR', '退款率', '广告订单占比', '自然CVR'];
+                        if (pctFields.includes(cleanKey) && value > 1) {
+                            value = value / 100;
+                        }
+                    }
+                    processed[cleanKey] = value;
+                });
+                
+                // 生成标签
+                processed._label = processed.SKU ? String(processed.SKU).split(',')[0].trim() : 
+                                  (processed.父ASIN || 'N/A');
+                return processed;
+            });
+        }
+        
+        // 更新看板
+        function updateDashboard() {
+            if (!currentData) return;
+            
+            document.getElementById('dataStatus').textContent = 
+                `✅ 已加载: ${currentData.length} 条数据${prevData ? ' (含对比数据)' : ''}`;
+            
+            updateKPIs();
+            updateCharts();
+            updateTables();
+        }
+        
+        // 计算指标
+        function getMetrics(data) {
+            if (!data || data.length === 0) return {};
+            return {
+                订单量: sum(data, '订单量'),
+                销售额: sum(data, '销售额'),
+                毛利润: sum(data, '订单毛利润'),
+                广告花费: sum(data, '广告花费'),
+                广告销售额: sum(data, '广告销售额'),
+                广告订单量: sum(data, '广告订单量'),
+                自然订单量: sum(data, '自然订单量')
+            };
+        }
+        
+        function sum(data, field) {
+            return data.reduce((acc, row) => acc + (parseFloat(row[field]) || 0), 0);
+        }
+        
+        // 更新KPI
+        function updateKPIs() {
+            const metrics = getMetrics(currentData);
+            const prevMetrics = prevData ? getMetrics(prevData) : {};
+            
+            const kpiConfig = [
+                { key: '订单量', id: 'orders', format: v => formatNumber(v) },
+                { key: '销售额', id: 'sales', format: v => '$' + formatNumber(v) },
+                { key: '毛利润', id: 'profit', format: v => '$' + formatNumber(v) },
+                { key: '毛利润率', id: 'margin', format: v => v.toFixed(1) + '%', calc: () => 
+                    metrics.销售额 > 0 ? (metrics.毛利润 / metrics.销售额 * 100) : 0 },
+                { key: '广告花费', id: 'adcost', format: v => '$' + formatNumber(v) },
+                { key: '广告销售额', id: 'adsales', format: v => '$' + formatNumber(v) }
+            ];
+            
+            kpiConfig.forEach(config => {
+                let value = config.calc ? config.calc() : metrics[config.key];
+                document.getElementById(`kpi-${config.id}`).textContent = config.format(value);
+                
+                // 环比
+                const changeEl = document.getElementById(`kpi-${config.id}-change`);
+                if (prevMetrics.销售额 !== undefined) {
+                    let prevValue = config.calc ? 
+                        (prevMetrics.销售额 > 0 ? (prevMetrics.毛利润 / prevMetrics.销售额 * 100) : 0) : 
+                        prevMetrics[config.key];
+                    if (prevValue !== 0) {
+                        const rate = ((value - prevValue) / Math.abs(prevValue)) * 100;
+                        const arrow = rate > 0 ? '↑' : '↓';
+                        changeEl.textContent = `${arrow} ${Math.abs(rate).toFixed(1)}%`;
+                        changeEl.className = `kpi-change ${rate > 0 ? 'up' : 'down'}`;
+                    }
+                }
+            });
+        }
+        
+        // 更新所有图表
+        function updateCharts() {
+            if (!currentData) return;
+            
+            // 订单构成饼图
+            const metrics = getMetrics(currentData);
+            charts.orderComposition.setOption({
+                title: { text: '订单构成', left: 'center' },
+                tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    data: [
+                        { value: metrics.广告订单量, name: '广告订单', itemStyle: { color: '#6366f1' } },
+                        { value: metrics.自然订单量, name: '自然订单', itemStyle: { color: '#10b981' } }
+                    ],
+                    label: { formatter: '{b}\n{d}%' }
+                }]
+            });
+            
+            // 销售额构成饼图
+            charts.salesComposition.setOption({
+                title: { text: '销售额构成', left: 'center' },
+                tooltip: { trigger: 'item', formatter: '{b}: ${c} ({d}%)' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    data: [
+                        { value: Math.round(metrics.广告销售额), name: '广告销售额', itemStyle: { color: '#f59e0b' } },
+                        { value: Math.round(metrics.销售额 - metrics.广告销售额), name: '自然销售额', itemStyle: { color: '#ec4899' } }
+                    ],
+                    label: { formatter: '{b}\n{d}%' }
+                }]
+            });
+            
+            // 销售趋势图
+            updateSalesTrendChart();
+            
+            // 产品销售额图
+            updateProductChart();
+            
+            // 广告效果图表
+            updateAdCharts();
+            
+            // 流量趋势
+            updateFlowChart();
+        }
+        
+        // 销售趋势图
+        function updateSalesTrendChart() {
+            const dateGroups = {};
+            currentData.forEach(row => {
+                const date = row['日期'];
+                if (!dateGroups[date]) {
+                    dateGroups[date] = { 销量: 0, 销售额: 0, 订单毛利润: 0 };
+                }
+                dateGroups[date].销量 += parseFloat(row['销量']) || 0;
+                dateGroups[date].销售额 += parseFloat(row['销售额']) || 0;
+                dateGroups[date].订单毛利润 += parseFloat(row['订单毛利润']) || 0;
+            });
+            
+            const dates = Object.keys(dateGroups).sort();
+            
+            charts.salesTrend.setOption({
+                title: { text: '销量/销售额/毛利润日变化趋势', left: 'center' },
+                tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                legend: { data: ['总销量', '总销售额($)', '总毛利润($)'], bottom: 0 },
+                grid: { left: '3%', right: '3%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'category', data: dates },
+                yAxis: [
+                    { type: 'value', name: '销量', position: 'left' },
+                    { type: 'value', name: '金额($)', position: 'right' }
+                ],
+                series: [
+                    { name: '总销量', type: 'line', data: dates.map(d => dateGroups[d].销量), smooth: true, itemStyle: { color: '#3b82f6' } },
+                    { name: '总销售额($)', type: 'line', data: dates.map(d => dateGroups[d].销售额), yAxisIndex: 1, smooth: true, itemStyle: { color: '#10b981' } },
+                    { name: '总毛利润($)', type: 'line', data: dates.map(d => dateGroups[d].订单毛利润), yAxisIndex: 1, smooth: true, itemStyle: { color: '#f59e0b' } }
+                ]
+            });
+        }
+        
+        // 产品销售额图
+        function updateProductChart() {
+            const excludeZero = document.getElementById('excludeZeroSales').checked;
+            const topN = parseInt(document.getElementById('topN').value) || 15;
+            
+            let filtered = excludeZero ? currentData.filter(r => (r['销量'] || 0) > 0) : currentData;
+            
+            // 按SKU汇总销售额
+            const skuSales = {};
+            filtered.forEach(row => {
+                const sku = row._label;
+                if (!skuSales[sku]) skuSales[sku] = 0;
+                skuSales[sku] += parseFloat(row['销售额']) || 0;
+            });
+            
+            const sorted = Object.entries(skuSales)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, topN);
+            
+            charts.productSales.setOption({
+                title: { text: `SKU销售额（显示前${topN}个）`, left: 'center' },
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}: ${c}' },
+                grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'category', data: sorted.map(i => i[0]), axisLabel: { rotate: 45 } },
+                yAxis: { type: 'value', name: '销售额($)' },
+                series: [{
+                    type: 'bar',
+                    data: sorted.map(i => i[1]),
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                            { offset: 0, color: '#3b82f6' },
+                            { offset: 1, color: '#60a5fa' }
+                        ])
+                    }
+                }]
+            });
+        }
+        
+        // 广告效果图表
+        function updateAdCharts() {
+            // 广告类型分析
+            const adTypes = ['SP', 'SB', 'SBV', 'SD'];
+            const adData = [];
+            
+            adTypes.forEach(type => {
+                const spendCol = `${type}广告费`;
+                const salesCol = `${type}广告销售额`;
+                const spend = sum(currentData, spendCol);
+                const sales = sum(currentData, salesCol);
+                if (spend > 0 || sales > 0) {
+                    adData.push({ type, spend, sales, acos: sales > 0 ? (spend / sales * 100) : 0 });
+                }
+            });
+            
+            if (adData.length > 0) {
+                charts.adPerformance.setOption({
+                    title: { text: '各广告类型花费 vs 销售额（含ACOS）', left: 'center' },
+                    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+                    legend: { data: ['花费($)', '销售额($)', 'ACOS(%)'], bottom: 0 },
+                    grid: { left: '3%', right: '3%', bottom: '15%', containLabel: true },
+                    xAxis: { type: 'category', data: adData.map(d => d.type) },
+                    yAxis: [
+                        { type: 'value', name: '金额($)', position: 'left' },
+                        { type: 'value', name: 'ACOS(%)', position: 'right', max: 100 }
+                    ],
+                    series: [
+                        { name: '花费($)', type: 'bar', data: adData.map(d => d.spend), itemStyle: { color: '#f56565' } },
+                        { name: '销售额($)', type: 'bar', data: adData.map(d => d.sales), itemStyle: { color: '#48bb78' } },
+                        { name: 'ACOS(%)', type: 'line', yAxisIndex: 1, data: adData.map(d => d.acos.toFixed(1)), itemStyle: { color: '#9333ea' } }
+                    ]
+                });
+            }
+            
+            // ACOS分布
+            const acosValues = currentData
+                .filter(r => (r['ACOS'] || 0) > 0)
+                .map(r => (r['ACOS'] || 0) * 100);
+            
+            const acosBins = { '0-10%': 0, '10-20%': 0, '20-30%': 0, '30-50%': 0, '>50%': 0 };
+            acosValues.forEach(v => {
+                if (v < 10) acosBins['0-10%']++;
+                else if (v < 20) acosBins['10-20%']++;
+                else if (v < 30) acosBins['20-30%']++;
+                else if (v < 50) acosBins['30-50%']++;
+                else acosBins['>50%']++;
+            });
+            
+            charts.acosDist.setOption({
+                title: { text: 'ACOS分布', left: 'center' },
+                tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                series: [{
+                    type: 'pie',
+                    radius: ['40%', '70%'],
+                    data: Object.entries(acosBins).map(([name, value]) => ({ name, value })),
+                    label: { formatter: '{b}\n{d}%' }
+                }]
+            });
+        }
+        
+        // 流量趋势
+        function updateFlowChart() {
+            const flowCols = ['Sessions-Total', 'PV-Total', 'CVR', '自然点击量', '自然订单量', '自然CVR'];
+            const availableCols = flowCols.filter(col => currentData.some(r => r[col] !== undefined && r[col] !== 0));
+            
+            if (availableCols.length === 0) {
+                charts.flowTrend.setOption({
+                    title: { text: '暂无流量数据', left: 'center', top: 'center' }
+                });
+                return;
+            }
+            
+            const dateGroups = {};
+            currentData.forEach(row => {
+                const date = row['日期'];
+                if (!dateGroups[date]) dateGroups[date] = {};
+                availableCols.forEach(col => {
+                    if (!dateGroups[date][col]) dateGroups[date][col] = 0;
+                    dateGroups[date][col] += parseFloat(row[col]) || 0;
+                });
+            });
+            
+            const dates = Object.keys(dateGroups).sort();
+            const colors = ['#3b82f6', '#10b981', '#f59e0b', '#6366f1', '#ec4899', '#9333ea'];
+            
+            charts.flowTrend.setOption({
+                title: { text: '流量指标日变化趋势', left: 'center' },
+                tooltip: { trigger: 'axis' },
+                legend: { data: availableCols, bottom: 0 },
+                grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
+                xAxis: { type: 'category', data: dates },
+                yAxis: { type: 'value' },
+                series: availableCols.map((col, i) => ({
+                    name: col,
+                    type: 'line',
+                    data: dates.map(d => {
+                        let v = dateGroups[d][col];
+                        return col.includes('CVR') ? (v * 100).toFixed(2) : v;
+                    }),
+                    smooth: true,
+                    itemStyle: { color: colors[i % colors.length] }
+                }))
+            });
+        }
+        
+        // 更新表格
+        function updateTables() {
+            updateProductTable();
+            updateAdTable();
+            updateAnomaly();
+            updateInventoryTable();
+        }
+        
+        // 产品表格
+        function updateProductTable() {
+            const minSales = parseInt(document.getElementById('minSalesProduct').value) || 0;
+            let filtered = currentData.filter(r => (r['销量'] || 0) >= minSales);
+            
+            // 按SKU汇总
+            const skuData = {};
+            filtered.forEach(row => {
+                const label = row._label;
+                if (!skuData[label]) {
+                    skuData[label] = { label, 销量: 0, 销售额: 0, 订单毛利润: 0, 评分: row['评分'] || 0 };
+                }
+                skuData[label].销量 += parseFloat(row['销量']) || 0;
+                skuData[label].销售额 += parseFloat(row['销售额']) || 0;
+                skuData[label].订单毛利润 += parseFloat(row['订单毛利润']) || 0;
+            });
+            
+            const tbody = document.querySelector('#productTable tbody');
+            tbody.innerHTML = Object.values(skuData)
+                .sort((a, b) => b.销售额 - a.销售额)
+                .slice(0, 50)
+                .map(row => `
+                    <tr>
+                        <td>${row.label}</td>
+                        <td>${formatNumber(row.销量)}</td>
+                        <td>$${formatNumber(row.销售额)}</td>
+                        <td>$${formatNumber(row.订单毛利润)}</td>
+                        <td>${row.评分.toFixed(1)}</td>
+                    </tr>
+                `).join('');
+        }
+        
+        // 广告表格
+        function updateAdTable() {
+            const minSales = parseInt(document.getElementById('minSalesAd').value) || 0;
+            let filtered = currentData.filter(r => (r['销量'] || 0) >= minSales);
+            
+            const skuData = {};
+            filtered.forEach(row => {
+                const label = row._label;
+                if (!skuData[label]) {
+                    skuData[label] = { label, 销量: 0, 销售额: 0, 广告花费: 0, 广告销售额: 0, ACOS: row['ACOS'] || 0 };
+                }
+                skuData[label].销量 += parseFloat(row['销量']) || 0;
+                skuData[label].销售额 += parseFloat(row['销售额']) || 0;
+                skuData[label].广告花费 += parseFloat(row['广告花费']) || 0;
+                skuData[label].广告销售额 += parseFloat(row['广告销售额']) || 0;
+            });
+            
+            // 更新广告总览
+            const totalAdSales = Object.values(skuData).reduce((acc, r) => acc + r.广告销售额, 0);
+            document.getElementById('adMetricsSummary').innerHTML = `
+                <div style="font-size: 1.2rem; margin-bottom: 15px;">
+                    总广告销售额: <strong>$${formatNumber(totalAdSales)}</strong>
+                </div>
+            `;
+            
+            const tbody = document.querySelector('#adTable tbody');
+            tbody.innerHTML = Object.values(skuData)
+                .sort((a, b) => b.广告销售额 - a.广告销售额)
+                .slice(0, 20)
+                .map(row => `
+                    <tr>
+                        <td>${row.label}</td>
+                        <td>${formatNumber(row.销量)}</td>
+                        <td>$${formatNumber(row.销售额)}</td>
+                        <td>$${formatNumber(row.广告花费)}</td>
+                        <td>$${formatNumber(row.广告销售额)}</td>
+                        <td>${(row.ACOS * 100).toFixed(2)}%</td>
+                    </tr>
+                `).join('');
+        }
+        
+        // 异常监控
+        function updateAnomaly() {
+            if (!currentData) return;
+            
+            const minSales = parseInt(document.getElementById('minSalesAnomaly').value) || 0;
+            const acosTh = parseInt(document.getElementById('acosThreshold').value) || 35;
+            const marginTh = parseInt(document.getElementById('marginThreshold').value) || 10;
+            const refundTh = parseInt(document.getElementById('refundThreshold').value) || 5;
+            const ratingTh = parseFloat(document.getElementById('ratingThreshold').value) || 4.0;
+            
+            let filtered = currentData.filter(r => (r['销量'] || 0) >= minSales);
+            
+            const highAcos = filtered.filter(r => (r['ACOS'] || 0) * 100 > acosTh);
+            const lowMargin = filtered.filter(r => (r['订单毛利率'] || 0) * 100 < marginTh);
+            const highRefund = filtered.filter(r => (r['退款率'] || 0) * 100 > refundTh);
+            const lowRating = filtered.filter(r => (r['评分'] || 5) < ratingTh && r['评分'] > 0);
+            
+            // 统计卡片
+            document.getElementById('anomalyStats').innerHTML = `
+                <div class="anomaly-stat">
+                    <div class="anomaly-stat-value">${highAcos.length}</div>
+                    <div class="anomaly-stat-label">高ACOS (>${acosTh}%)</div>
+                </div>
+                <div class="anomaly-stat">
+                    <div class="anomaly-stat-value">${lowMargin.length}</div>
+                    <div class="anomaly-stat-label">低利润率 (<${marginTh}%)</div>
+                </div>
+                <div class="anomaly-stat">
+                    <div class="anomaly-stat-value">${highRefund.length}</div>
+                    <div class="anomaly-stat-label">高退款率 (>${refundTh}%)</div>
+                </div>
+                <div class="anomaly-stat">
+                    <div class="anomaly-stat-value">${lowRating.length}</div>
+                    <div class="anomaly-stat-label">低评分 (<${ratingTh})</div>
+                </div>
+            `;
+            
+            // 异常详情表
+            let html = '';
+            if (highAcos.length > 0) {
+                html += createAnomalyTable('🔴 高ACOS产品', highAcos, ['_label', 'ACOS', '销售额', '广告花费'], 
+                    row => `<span class="badge badge-red">${(row.ACOS * 100).toFixed(1)}%</span>`);
+            }
+            if (lowMargin.length > 0) {
+                html += createAnomalyTable('🟡 低利润率产品', lowMargin, ['_label', '订单毛利率', '销售额', '订单毛利润'],
+                    row => `<span class="badge badge-yellow">${(row['订单毛利率'] * 100).toFixed(1)}%</span>`);
+            }
+            if (highRefund.length > 0) {
+                html += createAnomalyTable('🟠 高退款率产品', highRefund, ['_label', '退款率', '销售额'],
+                    row => `<span class="badge badge-red">${(row['退款率'] * 100).toFixed(1)}%</span>`);
+            }
+            
+            document.getElementById('anomalyTables').innerHTML = html || '<p style="color: #94a3b8; text-align: center;">暂无异常数据</p>';
+        }
+        
+        function createAnomalyTable(title, data, cols, badgeFn) {
+            return `
+                <div class="card" style="margin-bottom: 15px;">
+                    <div style="font-weight: 600; margin-bottom: 10px; color: #1e3a5f;">${title}</div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    ${cols.map(c => `<th>${c === '_label' ? '产品' : c}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.slice(0, 10).map(row => `
+                                    <tr>
+                                        <td>${row._label}</td>
+                                        <td>${badgeFn(row)}</td>
+                                        <td>$${formatNumber(row[cols[2]])}</td>
+                                        ${cols[3] ? `<td>$${formatNumber(row[cols[3]])}</td>` : ''}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 库存监控
+        function updateInventoryTable() {
+            if (!currentData) return;
+            
+            // 获取最后一天库存
+            const dates = [...new Set(currentData.map(r => r['日期']))].sort();
+            const lastDate = dates[dates.length - 1];
+            const lastDayData = currentData.filter(r => r['日期'] === lastDate);
+            
+            // 更新库存汇总
+            const fbaCols = ['FBA-可售', 'FBA-入库中', 'FBA-在途'];
+            const availableCols = fbaCols.filter(col => lastDayData.some(r => r[col] > 0));
+            
+            document.getElementById('inventoryKpiGrid').innerHTML = availableCols.map(col => {
+                const total = lastDayData.reduce((acc, r) => acc + (r[col] || 0), 0);
+                return `
+                    <div class="kpi-card">
+                        <div class="kpi-value">${formatNumber(total)}</div>
+                        <div class="kpi-label">${col}</div>
+                    </div>
+                `;
+            }).join('');
+            
+            // 库存明细表
+            const minSales = parseInt(document.getElementById('minSalesInventory').value) || 0;
+            let filtered = lastDayData.filter(r => (r['销量'] || 0) >= minSales);
+            
+            // 按SKU汇总
+            const skuData = {};
+            filtered.forEach(row => {
+                const label = row._label;
+                if (!skuData[label]) {
+                    skuData[label] = { 
+                        label, 
+                        'FBA-可售': 0, 'FBA-入库中': 0, 'FBA-在途': 0, 
+                        销量: 0, 动销率: 0, 库销比: 0 
+                    };
+                }
+                skuData[label]['FBA-可售'] += parseFloat(row['FBA-可售']) || 0;
+                skuData[label]['FBA-入库中'] += parseFloat(row['FBA-入库中']) || 0;
+                skuData[label]['FBA-在途'] += parseFloat(row['FBA-在途']) || 0;
+                skuData[label]['销量'] += parseFloat(row['销量']) || 0;
+            });
+            
+            // 计算动销率和库销比
+            Object.values(skuData).forEach(row => {
+                row.动销率 = row['FBA-可售'] > 0 ? (row['销量'] / row['FBA-可售'] * 100) : 0;
+                // 库销比需要上周数据，这里简化处理
+                row.库销比 = row['销量'] > 0 ? (row['FBA-可售'] / row['销量']) : 0;
+            });
+            
+            const tbody = document.querySelector('#inventoryTable tbody');
+            tbody.innerHTML = Object.values(skuData)
+                .sort((a, b) => b['FBA-可售'] - a['FBA-可售'])
+                .map(row => `
+                    <tr>
+                        <td>${row.label}</td>
+                        <td>${formatNumber(row['FBA-可售'])}</td>
+                        <td>${formatNumber(row['FBA-入库中'])}</td>
+                        <td>${formatNumber(row['FBA-在途'])}</td>
+                        <td>${formatNumber(row['销量'])}</td>
+                        <td>${row.动销率.toFixed(1)}%</td>
+                        <td>${row.库销比.toFixed(1)}</td>
+                    </tr>
+                `).join('');
+        }
+        
+        // 格式化数字
+        function formatNumber(num) {
+            if (num === undefined || num === null) return '-';
+            num = parseFloat(num);
+            if (isNaN(num)) return '-';
+            if (Math.abs(num) >= 1000) {
+                return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
+            }
+            return num.toLocaleString('en-US', { maximumFractionDigits: 2 });
+        }
+        
+        // 窗口大小变化时重新调整图表
+        window.addEventListener('resize', () => {
+            Object.values(charts).forEach(chart => chart && chart.resize());
+        });
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+        });
+    </script>
+</body>
+</html>
